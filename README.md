@@ -18,13 +18,12 @@ Ce projet permet d'analyser les tendances de consommation à partir de données 
 
 ## Structure du Projet
 ```
-📦 TEST
+📦 TENDANCES_CONSOMATION
  ┣ 📜 customer_clustering_v2.py   # Script principal Python
  ┣ 📜 ExcelVBACode.txt           # Code VBA pour l'intégration Excel
  ┣ 📜 requirements.txt           # Dépendances Python
  ┣ 📜 README.md                  # Documentation
- ┣ 📜 shopping_trends.xlsx       # Données d'exemple (Excel)
- ┗ 📜 shopping_trends.csv        # Données d'exemple (CSV)
+ ┗ 📜 shopping_trends.xlsx       # Données d'exemple (Excel)
 ```
 
 ## Prérequis
@@ -143,10 +142,3 @@ Le script génère un nouveau fichier Excel avec :
 - Les valeurs réelles (non standardisées) sont utilisées pour les insights
 - L'interface Excel permet une utilisation sans connaissances en Python
 
-## Contributions
-Le projet est ouvert aux contributions. Suggestions d'amélioration :
-- Support de formats de données supplémentaires
-- Analyses temporelles plus poussées
-- Interface utilisateur dédiée
-- Tests unitaires
-- Documentation API
