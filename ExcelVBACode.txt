@@ -1,0 +1,108 @@
+' Add this code to a new Module in your Excel workbook
+
+Option Explicit
+
+' Form to collect file path and trigger analysis
+Private Sub UserForm_Initialize()
+    ' Center the form on screen
+    Me.StartUpPosition = 0
+    Me.Left = Application.Left + (0.5 * Application.Width) - (0.5 * Me.Width)
+    Me.Top = Application.Top + (0.5 * Application.Height) - (0.5 * Me.Height)
+End Sub
+
+' Button to browse for file
+Private Sub btnBrowse_Click()
+    Dim fd As Office.FileDialog
+    Set fd = Application.FileDialog(msoFileDialogFilePicker)
+    
+    With fd
+        .Title = "Select Data File"
+        .Filters.Clear
+        .Filters.Add "Excel Files", "*.xlsx;*.xls"
+        .AllowMultiSelect = False
+        
+        If .Show = True Then
+            txtFilePath.Text = .SelectedItems(1)
+        End If
+    End With
+End Sub
+
+' Button to run analysis
+Private Sub btnAnalyze_Click()
+    If Len(txtFilePath.Text) = 0 Then
+        MsgBox "Please select a file first!", vbExclamation
+        Exit Sub
+    End If
+    
+    If Not FileExists(txtFilePath.Text) Then
+        MsgBox "Selected file does not exist!", vbExclamation
+        Exit Sub
+    End If
+    
+    ' Show progress message
+    Me.lblStatus.Caption = "Analysis in progress..."
+    Me.lblStatus.Visible = True
+    DoEvents
+    
+    ' Run the Python script
+    RunPythonScript txtFilePath.Text
+End Sub
+
+' Function to check if file exists
+Private Function FileExists(filePath As String) As Boolean
+    On Error Resume Next
+    FileExists = (Dir(filePath) <> "")
+    On Error GoTo 0
+End Function
+
+' Function to run Python script
+Private Sub RunPythonScript(filePath As String)
+    On Error GoTo ErrorHandler
+    
+    Dim pythonPath As String
+    Dim scriptPath As String
+    Dim cmd As String
+    Dim returnVal As Double
+      ' Use complete Python path
+    pythonPath = "C:\Python39\python.exe"  ' Adjust this path to match your Python installation
+    ' If above path doesn't work, you can find your Python path by running 'where python' in CMD
+    scriptPath = ThisWorkbook.Path & "\customer_clustering.py"
+    
+    ' Construct command
+    cmd = """" & pythonPath & """ """ & scriptPath & """ """ & filePath & """"
+      ' Create and execute the command with output
+    Dim wsh As Object
+    Set wsh = CreateObject("WScript.Shell")
+    
+    ' Run the command and wait for it to complete
+    Dim waitOnReturn As Boolean: waitOnReturn = True
+    Dim windowStyle As Integer: windowStyle = 1  ' 1 = vbNormalFocus
+    
+    ' Execute and capture output
+    Dim exitCode As Integer
+    exitCode = wsh.Run(cmd, windowStyle, waitOnReturn)
+    
+    ' Wait a bit longer for file operations to complete
+    Application.Wait Now + TimeValue("0:00:05")
+    
+    ' Check if output file exists
+    Dim outputPath As String
+    outputPath = Left(filePath, InStrRev(filePath, ".") - 1) & "_with_clusters.xlsx"
+    
+    If FileExists(outputPath) Then
+        Me.lblStatus.Caption = "Analysis complete!"
+        
+        If MsgBox("Analysis complete! Would you like to open the results?", _
+                  vbQuestion + vbYesNo) = vbYes Then
+            Workbooks.Open outputPath
+        End If
+    Else
+        MsgBox "Error: Output file not created. Check Python script execution.", vbCritical
+    End If
+    
+    Exit Sub
+
+ErrorHandler:
+    MsgBox "Error running analysis: " & Err.Description, vbCritical
+    Me.lblStatus.Caption = "Error occurred!"
+End Sub
