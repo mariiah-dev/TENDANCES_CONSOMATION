@@ -313,7 +313,8 @@ def create_trends_plots(df):
     ax1.set_ylabel('Pourcentage')
     ax1.legend(title='Cluster')
     ax1.tick_params(axis='x', rotation=45)
-      # Calculate promotion usage percentages
+    
+    # Calculate promotion usage percentages
     promo_data = pd.DataFrame()
     promo_data['Code promo'] = df.groupby('Cluster')['Promo Code Used'].apply(
         lambda x: (x == 'Yes').mean() * 100
@@ -389,143 +390,209 @@ def analyze_customer_data(input_file, output_file):
     return True  # Success
 
 def export_results_to_excel(output_file, df_original, insights, plot_paths):
-    writer = pd.ExcelWriter(output_file, engine='openpyxl')
+    """Export results to Excel with proper error handling."""
+    try:
+        with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
+            # Export the processed data with clusters
+            df_original.to_excel(writer, sheet_name='Données analysées', index=False)
+            # Export and format insights
+            ws_insights = writer.book.create_sheet('Insights', 1)
+            
+            # Format insights as a proper DataFrame
+            formatted_insights = []
+            for insight in insights:
+                # Split the insight into lines and process each line
+                lines = insight.split('\n')
+                cluster_title = lines[0].strip(':')  # "Cluster X"
+                size_info = lines[1]  # "Taille: X clients (Y%)"
+                
+                # Process the characteristics
+                characteristics = {}
+                for line in lines[3:]:  # Skip "Caractéristiques principales:"
+                    if line.startswith('- ') and ':' in line:
+                        key, value = line[2:].split(':', 1)
+                        characteristics[key.strip()] = value.strip()
+                
+                # Add to formatted insights
+                formatted_insights.append({
+                    'Cluster': cluster_title,
+                    'Taille du segment': size_info,
+                    **characteristics
+                })
+            
+            # Convert to DataFrame for better presentation
+            insights_df = pd.DataFrame(formatted_insights)
+            
+            # Write to Excel with good formatting
+            insights_df.to_excel(writer, sheet_name='Insights', index=False)
+            
+            # Get the worksheet for formatting
+            ws_insights = writer.book['Insights']
+            
+            # Format headers
+            for cell in ws_insights[1]:
+                cell.font = Font(bold=True)
+                cell.fill = PatternFill(start_color='E0E0E0', end_color='E0E0E0', fill_type='solid')
+                cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+            
+            # Format data cells
+            for row in ws_insights.iter_rows(min_row=2):
+                for cell in row:
+                    cell.alignment = Alignment(vertical='top', wrap_text=True)
+            
+            # Adjust column widths
+            for column in ws_insights.columns:
+                max_length = 0
+                column = list(column)
+                for cell in column:
+                    try:
+                        max_length = max(max_length, len(str(cell.value)))
+                    except:
+                        pass
+                adjusted_width = min(max_length + 2, 50)  # Cap width at 50 characters
+                ws_insights.column_dimensions[column[0].column_letter].width = adjusted_width
+                
+            # Add borders
+            thin_border = Border(
+                left=Side(style='thin'),
+                right=Side(style='thin'),
+                top=Side(style='thin'),
+                bottom=Side(style='thin')
+            )
+            
+            for row in ws_insights.iter_rows():
+                for cell in row:
+                    cell.border = thin_border
+            
+            # Create visualizations sheet and continue with plot exports
+            ws_viz = writer.book.create_sheet('Visualisations')
+            
+            # Define plot titles
+            titles = {
+                'elbow': 'Méthode du coude pour le choix du nombre de clusters',
+                'silhouette': 'Score de silhouette par cluster',
+                'cluster_distribution': 'Distribution des clusters',
+                'cluster_profiles': 'Profils des clusters',
+                'seasonal_trends': 'Tendances saisonnières par cluster',
+                'category_preferences': 'Préférences de catégories par cluster',
+                'correlation_heatmap': 'Matrice de corrélation des variables',
+                'customer_behavior': 'Analyse des comportements clients',
+                'distributions': 'Distribution des clusters et variables clés',
+                'categories': 'Analyse des catégories par cluster',
+                'seasonal': 'Analyse saisonnière',
+                'behavior': 'Analyse comportementale',
+                'payment_promo': 'Analyse des paiements et promotions',
+                'correlations': 'Corrélations entre variables'
+            }
+            
+            # Add plots to the visualization sheet
+            current_row = 1
+            for plot_path in plot_paths:
+                if os.path.exists(plot_path):
+                    # Add title
+                    plot_name = os.path.splitext(os.path.basename(plot_path))[0]
+                    title = titles.get(plot_name, 'Visualisation')
+                    ws_viz.cell(row=current_row, column=1, value=title)
+                    current_row += 1
+                    
+                    # Open and process image
+                    try:
+                        with Image.open(plot_path) as pil_img:
+                            # Calculate dimensions
+                            width_scale = min(600 / pil_img.width, 1.0)
+                            height_scale = min(400 / pil_img.height, 1.0)
+                            scale = min(width_scale, height_scale)
+                            
+                            img_width = int(pil_img.width * scale)
+                            img_height = int(pil_img.height * scale)
+                            
+                            # Create Excel image
+                            xl_img = XLImage(plot_path)
+                            xl_img.width = img_width
+                            xl_img.height = img_height
+                            
+                            # Add image to worksheet
+                            ws_viz.add_image(xl_img, f'A{current_row}')
+                            
+                            # Update row position for next image
+                            current_row += int(img_height / 15) + 3  # Add spacing between plots
+                    except Exception as e:
+                        print(f"Warning: Could not add plot {plot_path}: {str(e)}")
+                        current_row += 5  # Skip some rows if image fails
+            
+            # Auto-adjust column widths for data sheets only
+            for sheet_name in ['Données analysées', 'Insights']:
+                if sheet_name in writer.book.sheetnames:
+                    ws = writer.book[sheet_name]
+                    for column in ws.columns:
+                        max_length = 0
+                        column = list(column)
+                        for cell in column:
+                            try:
+                                if len(str(cell.value)) > max_length:
+                                    max_length = len(str(cell.value))
+                            except:
+                                pass
+                        adjusted_width = min(max_length + 2, 50)
+                        ws.column_dimensions[column[0].column_letter].width = adjusted_width
     
-    # Export the processed data with clusters
-    df_original.to_excel(writer, sheet_name='Données analysées', index=False)
-    
-    # Export and format insights
-    ws_insights = writer.book.create_sheet('Insights', 1)
-    
-    # Format insights as a proper DataFrame
-    formatted_insights = []
-    for insight in insights:
-        # Split the insight into lines and process each line
-        lines = insight.split('\n')
-        cluster_title = lines[0].strip(':')  # "Cluster X"
-        size_info = lines[1]  # "Taille: X clients (Y%)"
+    except Exception as e:
+        raise Exception(f"Error exporting to Excel: {str(e)}")
+
+def analyze_customer_data(input_file, output_file):
+    """Main function to analyze customer data and generate reports."""
+    try:
+        print("Chargement des données...")
+        df_original = load_data(input_file)
         
-        # Process the characteristics
-        characteristics = {}
-        for line in lines[3:]:  # Skip "Caractéristiques principales:"
-            if line.startswith('- '):
-                key, value = line[2:].split(':', 1)
-                characteristics[key.strip()] = value.strip()
+        print("Préparation des données...")
+        df_processed, features, encoders = preprocess_data(df_original)
         
-        # Add to formatted insights
-        formatted_insights.append({
-            'Cluster': cluster_title,
-            'Taille du segment': size_info,
-            **characteristics
-        })
-    
-    # Convert to DataFrame for better presentation
-    insights_df = pd.DataFrame(formatted_insights)
-    
-    # Write to Excel with good formatting
-    insights_df.to_excel(writer, sheet_name='Insights', index=False)
-    
-    # Get the worksheet for formatting
-    ws_insights = writer.book['Insights']
-      # Format headers
-    for cell in ws_insights[1]:
-        cell.font = Font(bold=True)
-        cell.fill = PatternFill(start_color='E0E0E0', end_color='E0E0E0', fill_type='solid')
-        cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
-    
-    # Format data cells
-    for row in ws_insights.iter_rows(min_row=2):
-        for cell in row:
-            cell.alignment = Alignment(vertical='top', wrap_text=True)
-    
-    # Adjust column widths
-    for column in ws_insights.columns:
-        max_length = 0
-        column = list(column)
-        for cell in column:
+        print("Recherche du nombre optimal de clusters...")
+        optimal_k, elbow_plot_path = find_optimal_clusters(df_processed[features])
+        print(f"Nombre optimal de clusters trouvé: {optimal_k}")
+        
+        print("Exécution du clustering...")
+        clusters = perform_clustering(df_processed[features], optimal_k)
+        
+        # Add cluster assignments to both dataframes
+        df_original['Cluster'] = clusters
+        df_processed['Cluster'] = clusters
+        
+        print("Création des visualisations...")
+        # Create distribution plots using original data
+        dist_plot_path = create_distribution_plots(df_original, clusters)
+        
+        # Generate insights using both original and processed data
+        insights = analyze_clusters(df_original, df_processed, clusters, features, encoders)
+        
+        # Create visualizations using original data
+        trends_plot_paths = create_trends_plots(df_original)
+        all_plot_paths = [elbow_plot_path, dist_plot_path] + trends_plot_paths
+
+        print("Sauvegarde des résultats...")
+        # Export results to Excel
+        export_results_to_excel(
+            output_file,
+            df_original,
+            insights,
+            all_plot_paths
+        )
+        
+        print("Nettoyage des fichiers temporaires...")
+        # Clean up temporary files
+        for path in all_plot_paths:
             try:
-                max_length = max(max_length, len(str(cell.value)))
-            except:
-                pass
-        adjusted_width = min(max_length + 2, 50)  # Cap width at 50 characters
-        ws_insights.column_dimensions[column[0].column_letter].width = adjusted_width
-      # Add borders
-    thin_border = Border(
-        left=Side(style='thin'),
-        right=Side(style='thin'),
-        top=Side(style='thin'),
-        bottom=Side(style='thin')
-    )
-    
-    for row in ws_insights.iter_rows():
-        for cell in row:
-            cell.border = thin_border
-    
-    # Create visualizations sheet and continue with plot exports
-    ws_viz = writer.book.create_sheet('Visualisations')
-      # Define plot titles
-    titles = {
-        'elbow': 'Méthode du coude pour le choix du nombre de clusters',
-        'silhouette': 'Score de silhouette par cluster',
-        'cluster_distribution': 'Distribution des clusters',
-        'cluster_profiles': 'Profils des clusters',
-        'seasonal_trends': 'Tendances saisonnières par cluster',
-        'category_preferences': 'Préférences de catégories par cluster',
-        'correlation_heatmap': 'Matrice de corrélation des variables',
-        'customer_behavior': 'Analyse des comportements clients',
-        'distributions': 'Distribution des clusters et variables clés',
-        'categories': 'Analyse des catégories par cluster',
-        'seasonal': 'Analyse saisonnière',
-        'behavior': 'Analyse comportementale',
-        'payment_promo': 'Analyse des paiements et promotions',
-        'correlations': 'Corrélations entre variables'
-    }
-    
-    # Add plots to the visualization sheet
-    current_row = 1
-    for plot_path in plot_paths:
-        # Add title
-        plot_name = os.path.splitext(os.path.basename(plot_path))[0]
-        title = titles.get(plot_name, 'Visualisation')
-        ws_viz.cell(row=current_row, column=1, value=title)
-        current_row += 1
+                if os.path.exists(path):
+                    os.remove(path)
+            except Exception as e:
+                print(f"Warning: Could not remove temporary file {path}: {str(e)}")
+                
+        return True  # Success
         
-        # Open and process image
-        with Image.open(plot_path) as pil_img:
-            # Calculate dimensions
-            width_scale = min(600 / pil_img.width, 1.0)
-            height_scale = min(400 / pil_img.height, 1.0)
-            scale = min(width_scale, height_scale)
-            
-            img_width = int(pil_img.width * scale)
-            img_height = int(pil_img.height * scale)
-            
-            # Create Excel image
-            xl_img = XLImage(plot_path)
-            xl_img.width = img_width
-            xl_img.height = img_height
-            
-            # Add image to worksheet
-            ws_viz.add_image(xl_img, f'A{current_row}')
-            
-            # Update row position for next image
-            current_row += int(img_height / 15) + 3  # Add spacing between plots
-        
-    # Auto-adjust column widths
-    for ws in writer.book.worksheets:
-        for column in ws.columns:
-            max_length = 0
-            column = list(column)
-            for cell in column:
-                try:
-                    if len(str(cell.value)) > max_length:
-                        max_length = len(str(cell.value))
-                except:
-                    pass
-            adjusted_width = (max_length + 2)
-            ws.column_dimensions[column[0].column_letter].width = adjusted_width
-    
-    writer.close()
+    except Exception as e:
+        print(f"Erreur lors de l'analyse: {str(e)}")
+        return False
 
 def main():
     try:
@@ -536,14 +603,30 @@ def main():
         if not os.path.exists(input_file):
             raise FileNotFoundError(f"File not found: {input_file}")
         
+        # Ensure output directory is writable
         output_file = os.path.splitext(input_file)[0] + '_with_clusters.xlsx'
+        output_dir = os.path.dirname(output_file)
+        
+        if not os.access(output_dir, os.W_OK):
+            # Try using temp directory if original location is not writable
+            import tempfile
+            output_file = os.path.join(tempfile.gettempdir(), 
+                                     os.path.basename(os.path.splitext(input_file)[0]) + '_with_clusters.xlsx')
+            print(f"Original directory not writable, saving to: {output_file}")
+        
         success = analyze_customer_data(input_file, output_file)
         
         if success:
-            print(f"Analyse terminée. Résultats et visualisations sauvegardés dans : {output_file}")
+            print(f"Analyse terminée avec succès!")
+            print(f"Résultats sauvegardés dans: {output_file}")
+        else:
+            print("Échec de l'analyse. Vérifiez les messages d'erreur ci-dessus.")
+            sys.exit(1)
         
     except Exception as e:
-        print(f"Error: {str(e)}")
+        print(f"Erreur fatale: {str(e)}")
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
 
 if __name__ == "__main__":
